@@ -116,17 +116,17 @@ users: {
 
 ### Phase 3 — Data Ingestion
 
-**Goal**: Allow uploading, importing, and scheduling ingestion of climate datasets.
+**Goal**: Allow uploading, importing, and scheduling ingestion of climate datasets. The project will exclusively use the Berkeley Earth Surface Temperature dataset.
 
 #### Supported Formats
-- CSV (Kaggle dataset records)
-- JSON (sensor data)
+- CSV (Berkeley Earth Surface Temperature records)
+- JSON (daily/weekly temperature update records)
 
 #### Backend (FastAPI)
 - `POST /api/ingest/upload` — Upload CSV/JSON files
 - `POST /api/ingest/schedule` — Schedule recurring ingestion jobs
 - `GET /api/ingest/history` — List all ingestion runs with status
-- Files stored to a local data lake directory (`/data/raw/`)
+- Files stored to a standard local directory (`/data/raw/`)
 - Ingestion metadata (source, timestamp, record count) stored in MongoDB
 
 #### MongoDB Schema — Ingestion Logs
@@ -150,17 +150,16 @@ ingestion_logs: {
 **Goal**: Store processed climate data in an organized, queryable format.
 
 #### Storage Strategy
-- **Raw data**: Local filesystem (`/data/raw/`) — input files
-- **Processed data**: Parquet format (`/data/processed/`) — output from PySpark jobs
-- **Metadata + results**: MongoDB collections
-- Data partitioned by **date**, **region**, and **data type** for fast retrieval
+- **Raw data**: Standard local directory (`/data/raw/`) — input files (Hadoop and HDFS will NOT be used)
+- **Processed data**: Parquet format in standard local directory (`/data/processed/`) — output from PySpark jobs (Hadoop and HDFS will NOT be used)
+- **Database**: MongoDB remains exactly as-is for storing metadata, alerts, and user profiles.
+- Data partitioned by **date**, **region** (latitude/longitude), and **data type** for fast retrieval
 
 #### MongoDB Collections
 ```
 climate_records: {
-  _id, source, region, timestamp,
-  temperature, humidity, co2_ppm,
-  wind_speed, precipitation, data_type
+  _id, source, region, latitude, longitude, timestamp,
+  temperature, data_type
 }
 
 anomalies: {
@@ -180,48 +179,59 @@ predictions: {
 
 **Goal**: Process large climate datasets using PySpark MapReduce-style jobs.
 
+#### Storage & Processing Details
+- Python and PySpark will run in **local mode** (Hadoop and HDFS will NOT be used).
+- PySpark reads from and writes to standard local directories (`/data/raw/` and `/data/processed/`).
+
 #### PySpark Jobs (in `backend/spark_jobs/`)
 | Job Script | Purpose |
 |---|---|
-| `clean_data.py` | Handle missing/null values, normalize units |
-| `aggregate_stats.py` | Compute regional averages, min/max, totals |
-| `pattern_detection.py` | Detect climate patterns using sliding windows |
-| `correlation_analysis.py` | Find correlations between variables (temp ↔ CO₂) |
-| `anomaly_batch.py` | Flag anomalies using Z-score / IQR thresholds |
+| `clean_data.py` | Handle missing/null values, normalize temperature units |
+| `aggregate_stats.py` | Compute regional averages, min/max temperatures |
+| `pattern_detection.py` | Detect temperature patterns using sliding windows |
+| `correlation_analysis.py` | Find temperature-to-latitude correlation |
+| `anomaly_batch.py` | Flag temperature anomalies using Z-score / IQR thresholds |
+| `retrain_models.py` | Combines original Kaggle dataset with all newly accumulated data to retrain ML models and prevent catastrophic forgetting |
 
-#### Trigger Mechanism
+#### Trigger Mechanism & Lifecycle
 - Jobs triggered via FastAPI endpoint: `POST /api/spark/run-job`
 - Job status tracked in MongoDB (`spark_jobs` collection)
 - Results written to `/data/processed/` and key stats stored in MongoDB
+- **Model Retraining Lifecycle**:
+  - The machine learning models are **NOT** retrained every time a new file is uploaded.
+  - Daily/weekly dataset uploads are instantly processed through pre-trained models to update the dashboard.
+  - Actual retraining happens infrequently via a scheduled or manually triggered batch job (`retrain_models.py`) running in local PySpark.
 
 ---
 
-### Phase 6 — Real-Time Data Processing (PySpark Structured Streaming)
+### Phase 6 — Real-Time Data Processing (PySpark Structured Streaming) & Live Weather API
 
-**Goal**: Ingest and process streaming sensor/API data in near real-time.
+**Goal**: Ingest and process streaming data and live weather information in near real-time.
 
 #### Approach
-- PySpark **Structured Streaming** reads from a local file stream or socket source simulating live sensor feeds
-- Micro-batch processing every 10–30 seconds
-- Outputs written to MongoDB in real-time
-- Anomalies detected in-stream and pushed to alert system
+- PySpark **Structured Streaming** (running in local mode, without Hadoop/HDFS) reads from a local file stream or socket source simulating temperature update feeds
+- Micro-batch processing every 10–30 seconds, writing to standard local directories and MongoDB
+- **Live Weather API & Auto-Location Integration**:
+  - Integrates the free, no-key **Open-Meteo API** to fetch real-time weather.
+  - When coordinates or a city are selected, FastAPI fetches the live current weather from Open-Meteo.
+  - FastAPI instantly passes this live temperature through the saved Scikit-learn Isolation Forest `.pkl` model for real-time anomaly detection, returning both the current temperature and an "Anomaly/Normal" badge to the frontend.
 
 #### Stream Pipeline
 ```
-Live Sensor Feed (CSV / JSON files dropped in /data/stream/)
+Live Sensor Feed / Open-Meteo API Fetch
         ↓
-PySpark Structured Streaming (micro-batch)
+PySpark Structured Streaming (local mode) / FastAPI Live Inference
         ↓
-Real-time Anomaly Detection
+Real-time Anomaly Detection (Isolation Forest .pkl)
         ↓
 MongoDB (climate_records + anomalies)
         ↓
-FastAPI WebSocket → React Frontend
+FastAPI WebSocket / API Response → React Frontend
 ```
 
 #### Frontend
-- Real-time data feed panel on the dashboard
-- Live-updating charts (Recharts with polling / WebSocket)
+- Real-time data feed panel and Open-Meteo live weather widget on the dashboard
+- Live-updating charts (Recharts with polling / WebSocket / API requests)
 
 ---
 
@@ -233,19 +243,21 @@ FastAPI WebSocket → React Frontend
 
 | Model | Algorithm | Purpose |
 |---|---|---|
-| Temperature Trend Predictor | Linear Regression (PySpark MLlib) | Predict temperature 7–30 days ahead |
-| Anomaly Detector | Isolation Forest (Scikit-learn) | Flag abnormal sensor readings |
-| CO₂ Correlation Analyzer | Pearson Correlation (PySpark) | Correlate CO₂ with temperature |
-| Precipitation Classifier | Random Forest (PySpark MLlib) | Classify precipitation likelihood |
+| Temperature Trend Predictor | Linear Regression (PySpark MLlib) | Predict temperature trends |
+| Temperature Anomaly Detector | Isolation Forest (Scikit-learn) | Flag abnormal temperature readings (from live weather API or uploads) |
+| Temperature-to-Latitude Correlation | Pearson Correlation (PySpark) | Correlation between temperature and latitude |
 
 #### Workflow
-1. Explore and train models in **Jupyter Notebooks** (`/notebooks/`)
-2. Export and integrate best-performing models into `backend/ml/`
+1. Explore and train models in **Jupyter Notebooks** (`/notebooks/`) using the Berkeley Earth Surface Temperature dataset.
+2. Export and integrate best-performing models (e.g. Scikit-learn `.pkl` for Isolation Forest) into `backend/ml/`.
 3. FastAPI exposes prediction endpoints:
-   - `POST /api/ml/predict` — Run prediction for a region/date
+   - `POST /api/ml/predict` — Run prediction/anomaly detection (passing live Open-Meteo temperature through the Isolation Forest `.pkl` model)
    - `GET /api/ml/models` — List all available models
-4. Models retrained periodically via scheduled PySpark jobs
-5. Predictions stored in MongoDB `predictions` collection
+4. **Model Retraining Lifecycle**:
+   - The model is **not** retrained every time a new file is uploaded.
+   - Daily/weekly dataset uploads are instantly processed through the pre-trained model for real-time dashboard updates.
+   - Actual retraining happens infrequently via a scheduled or manually triggered PySpark batch job (Phase 5) that combines the original Kaggle dataset with all newly accumulated data to prevent catastrophic forgetting.
+5. Predictions stored in MongoDB `predictions` collection.
 
 ---
 
@@ -256,13 +268,19 @@ FastAPI WebSocket → React Frontend
 #### Pages / Views (React)
 | Page | Description |
 |---|---|
-| **Overview Dashboard** | Key stats cards, global map, recent alerts |
-| **Climate Explorer** | Filter by region/date, line & bar charts |
-| **Anomaly Map** | Leaflet.js map with anomaly pins |
+| **Overview Dashboard** | Key stats cards, global map, recent alerts, and **Auto-Location Live Weather Widget** |
+| **Climate Explorer** | Filter by region/date, temperature line & bar charts |
+| **Anomaly Map** | Leaflet.js map with temperature anomaly pins |
 | **Predictions** | ML forecast charts with confidence bands |
 | **Ingestion Monitor** | Upload history, job statuses |
 | **User Management** | Admin-only: manage users and roles |
 | **Support** | Submit tickets, view responses |
+
+#### Auto-Location Integration & Live Weather (React ↔ FastAPI)
+- React frontend requests browser location permissions to auto-detect the user's current coordinates.
+- Providing a dropdown/search bar for manual city/coordinates selection as fallback.
+- FastAPI fetches the live current weather from the free, no-key Open-Meteo API when coordinates/city are selected.
+- FastAPI instantly runs this live data through the saved Scikit-learn `.pkl` model for real-time anomaly detection, returning both the current temperature and an "Anomaly/Normal" badge to the frontend dashboard.
 
 #### Libraries
 - **Recharts** — Line, Bar, Area, Scatter charts
@@ -277,7 +295,7 @@ FastAPI WebSocket → React Frontend
 **Goal**: Automated alerts when climate anomalies exceed defined thresholds.
 
 #### Alert System
-- Thresholds configurable per region and variable (e.g., temp > 45°C, CO₂ > 500ppm)
+- Thresholds configurable per region (e.g., temperature > 45°C)
 - Alert generation triggered by:
   - PySpark streaming anomaly detection
   - Scheduled batch job results
@@ -343,9 +361,10 @@ Phase 1: Setup → Phase 2: Auth → Phase 3: Ingestion
 
 ## Key Architecture Decisions
 
-- **Deployment**: The project will be run fully locally (localhost). PySpark will be configured in local mode.
-- **Data Source**: The application will use a large sample dataset from Kaggle to train the model. No live weather APIs will be used.
-- **Imagery**: Satellite imagery (NetCDF/GeoTIFF) processing has been skipped to simplify the ingestion pipeline.
+- **Deployment**: The project will be run fully locally (localhost). PySpark will be configured in local mode. Hadoop and HDFS will NOT be used.
+- **Data Source**: The project will exclusively use the Berkeley Earth Surface Temperature dataset. A free, no-key Open-Meteo API will be integrated to fulfill real-time weather requirements.
+- **Imagery**: Satellite imagery processing has been entirely skipped to streamline the data ingestion pipeline.
+- **Storage**: Python and PySpark will operate in local mode, reading and writing to standard local directories (`/data/raw/` and `/data/processed/`). MongoDB remains exactly as-is for storing metadata, alerts, and user profiles.
 - **Notifications**: Alerts will be delivered in-app and via email using Gmail SMTP.
 
 ---
