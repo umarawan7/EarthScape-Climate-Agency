@@ -35,7 +35,7 @@ const NAV_SECTIONS = [
 ];
 
 export default function Sidebar({ collapsed, setCollapsed, mobileOpen, setMobileOpen }) {
-  const { user, isAdmin, logout } = useAuth();
+  const { user, isAdmin, isAnalyst, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -71,7 +71,11 @@ export default function Sidebar({ collapsed, setCollapsed, mobileOpen, setMobile
             <div key={section.label}>
               <div className="sidebar-section-label">{section.label}</div>
               {section.items
-                .filter(item => !item.adminOnly || isAdmin)
+                .filter(item => {
+                  if (item.adminOnly && !isAdmin) return false;
+                  if (item.path === '/ingestion' && !(isAnalyst || isAdmin)) return false;
+                  return true;
+                })
                 .map((item) => {
                   const Icon = item.icon;
                   const active = location.pathname === item.path;

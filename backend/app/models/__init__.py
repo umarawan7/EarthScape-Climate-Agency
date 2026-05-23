@@ -1,7 +1,14 @@
 from app.models.alert import AlertSeverity
 from app.models.climate import AnomalyPublic, ClimateRecordPublic, PredictionPublic
 from app.models.ingestion import IngestionLogPublic, IngestionScheduleRequest
-from app.models.ml import LiveWeatherRequest, LiveWeatherResponse, MLPredictRequest, MLPredictResponse
+from app.models.ml import (
+    LiveWeatherRequest,
+    LiveWeatherResponse,
+    MLForecastRequest,
+    MLForecastResponse,
+    MLPredictRequest,
+    MLPredictResponse,
+)
 from app.models.spark_job import SparkJobPublic, SparkRunRequest
 from app.models.support import SupportTicketCreate, SupportTicketPublic, SupportTicketUpdate
 from app.models.user import RefreshTokenRequest, TokenPair, UserCreate, UserLogin, UserPublic, UserRole, UserUpdateRole
@@ -14,6 +21,8 @@ __all__ = [
     "IngestionScheduleRequest",
     "LiveWeatherRequest",
     "LiveWeatherResponse",
+    "MLForecastRequest",
+    "MLForecastResponse",
     "MLPredictRequest",
     "MLPredictResponse",
     "PredictionPublic",

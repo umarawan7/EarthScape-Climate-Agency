@@ -1,66 +1,88 @@
-import { useState } from 'react';
-import { usersData } from '../data/mockData';
-import { RiUserAddLine, RiSearchLine, RiEdit2Line, RiDeleteBinLine } from 'react-icons/ri';
+import { useEffect, useState } from 'react';
+import { RiDeleteBinLine, RiEdit2Line, RiSearchLine, RiUserAddLine } from 'react-icons/ri';
+import { useAuth } from '../context/AuthContext';
+import { userService } from '../services/domainServices';
 
 export default function UserManagement() {
-  const [users, setUsers] = useState(usersData);
+  const { accessToken } = useAuth();
+  const [users, setUsers] = useState([]);
   const [search, setSearch] = useState('');
-  
-  // Modals state
+  const [message, setMessage] = useState('');
+
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [selectedUser, setSelectedUser] = useState(null);
-  
-  // Form fields
+
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [role, setRole] = useState('user');
-  const [status, setStatus] = useState('active');
+  const [password, setPassword] = useState('');
+  const [role, setRole] = useState('viewer');
 
-  const filteredUsers = users.filter(u => 
-    u.name.toLowerCase().includes(search.toLowerCase()) || 
-    u.email.toLowerCase().includes(search.toLowerCase()) ||
-    u.role.toLowerCase().includes(search.toLowerCase())
+  const loadUsers = async () => {
+    if (!accessToken) return;
+    try {
+      const data = await userService.list(accessToken);
+      setUsers(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setMessage(err?.message || 'Failed to load users');
+    }
+  };
+
+  useEffect(() => {
+    loadUsers();
+  }, [accessToken]);
+
+  const filteredUsers = users.filter((u) =>
+    `${u.name} ${u.email} ${u.role}`.toLowerCase().includes(search.toLowerCase())
   );
 
   const clearForm = () => {
     setName('');
     setEmail('');
-    setRole('user');
-    setStatus('active');
+    setPassword('');
+    setRole('viewer');
     setSelectedUser(null);
   };
 
-  const handleAddUser = (e) => {
+  const handleAddUser = async (e) => {
     e.preventDefault();
-    const initials = name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
-    const newUser = {
-      id: Date.now(),
-      name,
-      email,
-      role,
-      status,
-      lastLogin: 'Never',
-      created: new Date().toISOString().split('T')[0],
-      initials: initials || 'US'
-    };
-    setUsers(prev => [newUser, ...prev]);
-    setShowAddModal(false);
-    clearForm();
+    try {
+      await userService.register(accessToken, { name, email, password, role });
+      setMessage('User created');
+      setShowAddModal(false);
+      clearForm();
+      await loadUsers();
+    } catch (err) {
+      setMessage(err?.message || 'Failed to create user');
+    }
   };
 
-  const handleUpdateUser = (e) => {
+  const handleUpdateUser = async (e) => {
     e.preventDefault();
-    setUsers(prev => prev.map(u => u.id === selectedUser.id ? { ...u, name, email, role, status } : u));
-    setShowEditModal(false);
-    clearForm();
+    if (!selectedUser) return;
+    try {
+      await userService.updateRole(accessToken, selectedUser.id, role);
+      setMessage('Role updated');
+      setShowEditModal(false);
+      clearForm();
+      await loadUsers();
+    } catch (err) {
+      setMessage(err?.message || 'Failed to update role');
+    }
   };
 
-  const handleDeleteUser = () => {
-    setUsers(prev => prev.filter(u => u.id !== selectedUser.id));
-    setShowDeleteModal(false);
-    setSelectedUser(null);
+  const handleDeleteUser = async () => {
+    if (!selectedUser) return;
+    try {
+      await userService.remove(accessToken, selectedUser.id);
+      setMessage('User deleted');
+      setShowDeleteModal(false);
+      setSelectedUser(null);
+      await loadUsers();
+    } catch (err) {
+      setMessage(err?.message || 'Failed to delete user');
+    }
   };
 
   const openAddModal = () => {
@@ -73,7 +95,6 @@ export default function UserManagement() {
     setName(user.name);
     setEmail(user.email);
     setRole(user.role);
-    setStatus(user.status);
     setShowEditModal(true);
   };
 
@@ -94,15 +115,17 @@ export default function UserManagement() {
         </button>
       </div>
 
+      {message && <div className="alert alert-info" style={{ fontSize: '0.82rem' }}>{message}</div>}
+
       <div className="card-es">
         <div className="card-header-es">
           <div className="navbar-search" style={{ display: 'flex', width: 300 }}>
             <RiSearchLine className="search-icon" />
-            <input 
-              type="text" 
-              placeholder="Search users by name, email, or role..." 
+            <input
+              type="text"
+              placeholder="Search users by name, email, or role..."
               value={search}
-              onChange={e => setSearch(e.target.value)}
+              onChange={(e) => setSearch(e.target.value)}
               style={{ width: '100%' }}
             />
           </div>
@@ -113,55 +136,52 @@ export default function UserManagement() {
               <tr>
                 <th>User</th>
                 <th>Role</th>
-                <th>Status</th>
                 <th>Last Login</th>
                 <th>Date Added</th>
                 <th className="text-end">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {filteredUsers.map(user => (
-                <tr key={user.id}>
-                  <td>
-                    <div className="d-flex align-items-center gap-2">
-                      <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'var(--primary-light)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.75rem' }}>
-                        {user.initials}
+              {filteredUsers.map((user) => {
+                const initials = (user.name || '').split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase();
+                return (
+                  <tr key={user.id}>
+                    <td>
+                      <div className="d-flex align-items-center gap-2">
+                        <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'var(--primary-light)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.75rem' }}>
+                          {initials || 'US'}
+                        </div>
+                        <div>
+                          <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{user.name}</div>
+                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{user.email}</div>
+                        </div>
                       </div>
-                      <div>
-                        <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{user.name}</div>
-                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{user.email}</div>
-                      </div>
-                    </div>
-                  </td>
-                  <td>
-                    <span style={{ 
-                      background: 'var(--bg-page)', 
-                      padding: '3px 10px', 
-                      borderRadius: 12, 
-                      fontSize: '0.72rem', 
-                      fontWeight: 600,
-                      textTransform: 'capitalize',
-                      border: '1px solid var(--border)'
-                    }}>
-                      {user.role}
-                    </span>
-                  </td>
-                  <td>
-                    <span className={`status-badge ${user.status === 'active' ? 'success' : 'muted'}`}>
-                      {user.status}
-                    </span>
-                  </td>
-                  <td style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{user.lastLogin}</td>
-                  <td style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{user.created}</td>
-                  <td className="text-end">
-                    <button className="btn btn-sm btn-link text-primary-es p-1" onClick={() => openEditModal(user)}><RiEdit2Line size={16} /></button>
-                    <button className="btn btn-sm btn-link text-danger p-1" onClick={() => openDeleteModal(user)}><RiDeleteBinLine size={16} /></button>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td>
+                      <span style={{
+                        background: 'var(--bg-page)',
+                        padding: '3px 10px',
+                        borderRadius: 12,
+                        fontSize: '0.72rem',
+                        fontWeight: 600,
+                        textTransform: 'capitalize',
+                        border: '1px solid var(--border)',
+                      }}>
+                        {user.role}
+                      </span>
+                    </td>
+                    <td style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{user.last_login ? new Date(user.last_login).toLocaleString() : 'Never'}</td>
+                    <td style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{user.created_at ? new Date(user.created_at).toLocaleDateString() : '-'}</td>
+                    <td className="text-end">
+                      <button className="btn btn-sm btn-link text-primary-es p-1" onClick={() => openEditModal(user)}><RiEdit2Line size={16} /></button>
+                      <button className="btn btn-sm btn-link text-danger p-1" onClick={() => openDeleteModal(user)}><RiDeleteBinLine size={16} /></button>
+                    </td>
+                  </tr>
+                );
+              })}
               {filteredUsers.length === 0 && (
                 <tr>
-                  <td colSpan="6" className="text-center py-4 text-muted">
+                  <td colSpan="5" className="text-center py-4 text-muted">
                     No users found matching "{search}"
                   </td>
                 </tr>
@@ -171,37 +191,34 @@ export default function UserManagement() {
         </div>
       </div>
 
-      {/* ── Add User Modal ── */}
       {showAddModal && (
         <div className="modal show d-block" tabIndex="-1" style={{ backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)' }}>
           <div className="modal-dialog modal-dialog-centered">
             <div className="modal-content" style={{ borderRadius: '12px', border: '1px solid var(--border)', background: 'var(--bg-card)' }}>
               <div className="modal-header" style={{ borderBottom: '1px solid var(--border-light)' }}>
                 <h5 className="modal-title" style={{ fontWeight: 700 }}>Add New User</h5>
-                <button type="button" className="btn-close" onClick={() => setShowAddModal(false)}></button>
+                <button type="button" className="btn-close" onClick={() => setShowAddModal(false)} />
               </div>
               <form onSubmit={handleAddUser}>
                 <div className="modal-body">
                   <div className="mb-3">
                     <label className="form-label" style={{ fontSize: '0.8rem', fontWeight: 600 }}>Full Name</label>
-                    <input type="text" className="form-control" required value={name} onChange={e => setName(e.target.value)} placeholder="e.g. John Doe" />
+                    <input type="text" className="form-control" required value={name} onChange={(e) => setName(e.target.value)} />
                   </div>
                   <div className="mb-3">
                     <label className="form-label" style={{ fontSize: '0.8rem', fontWeight: 600 }}>Email Address</label>
-                    <input type="email" className="form-control" required value={email} onChange={e => setEmail(e.target.value)} placeholder="e.g. john@earthscape.io" />
+                    <input type="email" className="form-control" required value={email} onChange={(e) => setEmail(e.target.value)} />
+                  </div>
+                  <div className="mb-3">
+                    <label className="form-label" style={{ fontSize: '0.8rem', fontWeight: 600 }}>Temporary Password</label>
+                    <input type="password" className="form-control" required value={password} onChange={(e) => setPassword(e.target.value)} />
                   </div>
                   <div className="mb-3">
                     <label className="form-label" style={{ fontSize: '0.8rem', fontWeight: 600 }}>Role</label>
-                    <select className="form-select" value={role} onChange={e => setRole(e.target.value)}>
-                      <option value="user">User</option>
+                    <select className="form-select" value={role} onChange={(e) => setRole(e.target.value)}>
+                      <option value="viewer">Viewer</option>
                       <option value="analyst">Analyst</option>
-                    </select>
-                  </div>
-                  <div className="mb-3">
-                    <label className="form-label" style={{ fontSize: '0.8rem', fontWeight: 600 }}>Status</label>
-                    <select className="form-select" value={status} onChange={e => setStatus(e.target.value)}>
-                      <option value="active">Active</option>
-                      <option value="inactive">Inactive</option>
+                      <option value="admin">Admin</option>
                     </select>
                   </div>
                 </div>
@@ -215,37 +232,30 @@ export default function UserManagement() {
         </div>
       )}
 
-      {/* ── Edit User Modal ── */}
       {showEditModal && (
         <div className="modal show d-block" tabIndex="-1" style={{ backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)' }}>
           <div className="modal-dialog modal-dialog-centered">
             <div className="modal-content" style={{ borderRadius: '12px', border: '1px solid var(--border)', background: 'var(--bg-card)' }}>
               <div className="modal-header" style={{ borderBottom: '1px solid var(--border-light)' }}>
-                <h5 className="modal-title" style={{ fontWeight: 700 }}>Update User</h5>
-                <button type="button" className="btn-close" onClick={() => setShowEditModal(false)}></button>
+                <h5 className="modal-title" style={{ fontWeight: 700 }}>Update User Role</h5>
+                <button type="button" className="btn-close" onClick={() => setShowEditModal(false)} />
               </div>
               <form onSubmit={handleUpdateUser}>
                 <div className="modal-body">
                   <div className="mb-3">
                     <label className="form-label" style={{ fontSize: '0.8rem', fontWeight: 600 }}>Full Name</label>
-                    <input type="text" className="form-control" required value={name} onChange={e => setName(e.target.value)} />
+                    <input type="text" className="form-control" value={name} disabled />
                   </div>
                   <div className="mb-3">
                     <label className="form-label" style={{ fontSize: '0.8rem', fontWeight: 600 }}>Email Address</label>
-                    <input type="email" className="form-control" required value={email} onChange={e => setEmail(e.target.value)} />
+                    <input type="email" className="form-control" value={email} disabled />
                   </div>
                   <div className="mb-3">
                     <label className="form-label" style={{ fontSize: '0.8rem', fontWeight: 600 }}>Role</label>
-                    <select className="form-select" value={role} onChange={e => setRole(e.target.value)}>
-                      <option value="user">User</option>
+                    <select className="form-select" value={role} onChange={(e) => setRole(e.target.value)}>
+                      <option value="viewer">Viewer</option>
                       <option value="analyst">Analyst</option>
-                    </select>
-                  </div>
-                  <div className="mb-3">
-                    <label className="form-label" style={{ fontSize: '0.8rem', fontWeight: 600 }}>Status</label>
-                    <select className="form-select" value={status} onChange={e => setStatus(e.target.value)}>
-                      <option value="active">Active</option>
-                      <option value="inactive">Inactive</option>
+                      <option value="admin">Admin</option>
                     </select>
                   </div>
                 </div>
@@ -259,14 +269,13 @@ export default function UserManagement() {
         </div>
       )}
 
-      {/* ── Delete User Modal ── */}
       {showDeleteModal && (
         <div className="modal show d-block" tabIndex="-1" style={{ backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)' }}>
           <div className="modal-dialog modal-dialog-centered">
             <div className="modal-content" style={{ borderRadius: '12px', border: '1px solid var(--border)', background: 'var(--bg-card)' }}>
               <div className="modal-header" style={{ borderBottom: '1px solid var(--border-light)' }}>
                 <h5 className="modal-title text-danger" style={{ fontWeight: 700 }}>Delete User</h5>
-                <button type="button" className="btn-close" onClick={() => setShowDeleteModal(false)}></button>
+                <button type="button" className="btn-close" onClick={() => setShowDeleteModal(false)} />
               </div>
               <div className="modal-body">
                 <p>Are you sure you want to delete <strong>{selectedUser?.name}</strong>?</p>
@@ -274,7 +283,7 @@ export default function UserManagement() {
               </div>
               <div className="modal-footer" style={{ borderTop: '1px solid var(--border-light)' }}>
                 <button type="button" className="btn btn-outline-secondary" onClick={() => setShowDeleteModal(false)}>Cancel</button>
-                <button type="button" className="btn className btn-danger" onClick={handleDeleteUser}>Delete User</button>
+                <button type="button" className="btn btn-danger" onClick={handleDeleteUser}>Delete User</button>
               </div>
             </div>
           </div>

@@ -29,15 +29,23 @@ class SupportService:
         created = await self.collection.find_one({"_id": result.inserted_id})
         return mongo_to_public(created)
 
-    async def list_tickets(self, user_id: str, is_admin: bool) -> list[dict]:
-        query = {} if is_admin else {"user_id": user_id}
+    async def list_tickets(self, user_id: str, can_view_all: bool) -> list[dict]:
+        query = {} if can_view_all else {"user_id": user_id}
         cursor = self.collection.find(query, sort=[("updated_at", -1)]).limit(300)
         items: list[dict] = []
         async for item in cursor:
             items.append(mongo_to_public(item))
         return items
 
-    async def update_ticket(self, ticket_id: str, status: str | None, admin_response: str | None) -> dict:
+    async def update_ticket(
+        self,
+        ticket_id: str,
+        status: str | None,
+        admin_response: str | None,
+        responder_id: str,
+        responder_name: str,
+        responder_role: str,
+    ) -> dict:
         try:
             ticket_object_id = ObjectId(ticket_id)
         except Exception as exc:
@@ -48,6 +56,9 @@ class SupportService:
             set_data["status"] = status
         if admin_response is not None:
             set_data["admin_response"] = admin_response
+            set_data["admin_response_by"] = responder_name
+            set_data["admin_response_by_id"] = responder_id
+            set_data["admin_response_by_role"] = responder_role
 
         updated = await self.collection.find_one_and_update(
             {"_id": ticket_object_id},

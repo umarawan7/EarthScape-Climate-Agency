@@ -2,10 +2,20 @@ from fastapi import APIRouter, Depends, Header, HTTPException, status
 
 from app.core.dependencies import get_current_user
 from app.core.security import TokenError, decode_token
-from app.models.user import RefreshTokenRequest, TokenPair, UserCreate, UserLogin
+from app.models.user import RefreshTokenRequest, ResetPasswordRequest, TokenPair, UserCreate, UserLogin
 from app.services.auth_service import AuthService
 
 router = APIRouter()
+
+
+@router.post("/self-register")
+async def self_register(payload: UserCreate) -> dict:
+    return await AuthService().self_register(payload)
+
+
+@router.post("/reset-password")
+async def reset_password(payload: ResetPasswordRequest) -> dict:
+    return await AuthService().reset_password(payload.email, payload.new_password)
 
 
 @router.post("/register")

@@ -141,3 +141,72 @@ class AuthService:
         parsed = mongo_to_public(user_doc)
         parsed.pop("password_hash", None)
         return parsed
+
+    async def self_register(self, payload: UserCreate) -> dict:
+        """Allow public self-signup — role is always forced to viewer."""
+        if await self.collection.find_one({"email": payload.email.lower()}):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
+
+        now = datetime.now(timezone.utc)
+        doc = {
+            "name": payload.name,
+            "email": payload.email.lower(),
+            "password_hash": hash_password(payload.password),
+            "role": UserRole.viewer.value,
+            "created_at": now,
+            "last_login": None,
+        }
+        result = await self.collection.insert_one(doc)
+        created = await self.collection.find_one({"_id": result.inserted_id})
+        if not created:
+            raise HTTPException(status_code=500, detail="Could not create user")
+        return self._sanitize_user(created)
+
+    async def reset_password(self, email: str, new_password: str) -> dict:
+        """Reset password by email — suitable for local deployment without email OTP."""
+        user = await self.collection.find_one({"email": email.lower()})
+        if not user:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No account with that email")
+
+        await self.collection.update_one(
+            {"_id": user["_id"]},
+            {"$set": {"password_hash": hash_password(new_password)}},
+        )
+        return {"detail": "Password updated successfully"}
+
+    async def update_profile(self, user_id: str, email: str | None, current_password: str | None, new_password: str | None) -> dict:
+        try:
+            user_object_id = ObjectId(user_id)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Invalid user id") from exc
+
+        user = await self.collection.find_one({"_id": user_object_id})
+        if not user:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+        updates = {}
+        if email:
+            email_lower = email.lower()
+            if email_lower != user["email"]:
+                if await self.collection.find_one({"email": email_lower}):
+                    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
+                updates["email"] = email_lower
+
+        if new_password:
+            if not current_password:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Current password required to set new password")
+            if not verify_password(current_password, user["password_hash"]):
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid current password")
+            updates["password_hash"] = hash_password(new_password)
+
+        if not updates:
+            return self._sanitize_user(user)
+
+        result = await self.collection.find_one_and_update(
+            {"_id": user_object_id},
+            {"$set": updates},
+            return_document=ReturnDocument.AFTER,
+        )
+        return self._sanitize_user(result)
+
+

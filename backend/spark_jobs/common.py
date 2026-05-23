@@ -1,4 +1,3 @@
-import re
 from pathlib import Path
 
 from pyspark.sql import DataFrame, SparkSession
@@ -18,12 +17,22 @@ def read_input(spark: SparkSession, input_path: str) -> DataFrame:
     path = Path(input_path)
     if path.is_dir():
         csv_files = list(path.rglob("*.csv"))
-        if not csv_files:
-            raise FileNotFoundError(f"No CSV files found under {input_path}")
-        return spark.read.option("header", True).option("inferSchema", True).csv([str(item) for item in csv_files])
+        json_files = list(path.rglob("*.json"))
+        if not csv_files and not json_files:
+            raise FileNotFoundError(f"No CSV or JSON files found under {input_path}")
+        frames: list[DataFrame] = []
+        if csv_files:
+            frames.append(spark.read.option("header", True).option("inferSchema", True).csv([str(item) for item in csv_files]))
+        if json_files:
+            frames.append(spark.read.option("multiLine", True).json([str(item) for item in json_files]))
+        if len(frames) == 1:
+            return frames[0]
+        return frames[0].unionByName(frames[1], allowMissingColumns=True)
 
     if path.suffix.lower() == ".parquet":
         return spark.read.parquet(str(path))
+    if path.suffix.lower() == ".json":
+        return spark.read.option("multiLine", True).json(str(path))
     return spark.read.option("header", True).option("inferSchema", True).csv(str(path))
 
 

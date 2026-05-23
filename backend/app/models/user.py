@@ -43,3 +43,16 @@ class RefreshTokenRequest(BaseModel):
 
 class UserUpdateRole(BaseModel):
     role: UserRole
+
+
+class ResetPasswordRequest(BaseModel):
+    email: EmailStr
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+class UserUpdateProfile(BaseModel):
+    email: EmailStr | None = None
+    current_password: str | None = None
+    new_password: str | None = Field(default=None, min_length=8, max_length=128)
+
+

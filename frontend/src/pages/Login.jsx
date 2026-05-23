@@ -3,32 +3,29 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { RiEarthLine, RiMailLine, RiLockLine, RiShieldCheckLine, RiBarChartLine, RiAlertLine, RiCloudLine } from 'react-icons/ri';
 
-const ROLES = ['admin', 'analyst', 'viewer'];
-
 export default function Login() {
   const { login } = useAuth();
-  const [selectedRole, setSelectedRole] = useState('admin');
-  const [email,    setEmail]    = useState('admin@earthscape.io');
+  const [email, setEmail] = useState('admin@earthscape.io');
   const [password, setPassword] = useState('');
-  const [loading,  setLoading]  = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const handleRoleSelect = (role) => {
-    setSelectedRole(role);
-    setEmail(`${role}@earthscape.io`);
-  };
-
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
-    setTimeout(() => {
-      login(selectedRole);
+    setError('');
+
+    try {
+      await login(email, password);
+    } catch (err) {
+      setError(err?.message || 'Login failed');
+    } finally {
       setLoading(false);
-    }, 800);
+    }
   };
 
   return (
     <div className="login-page">
-      {/* ── Left Panel ── */}
       <div className="login-left">
         <div className="login-left-content">
           <div className="login-brand-icon">
@@ -40,8 +37,8 @@ export default function Login() {
           <div className="login-feature-list">
             {[
               { icon: RiBarChartLine, text: 'Real-time climate data dashboards' },
-              { icon: RiAlertLine,    text: 'Automated anomaly detection & alerts' },
-              { icon: RiCloudLine,    text: 'PySpark distributed data processing' },
+              { icon: RiAlertLine, text: 'Automated anomaly detection & alerts' },
+              { icon: RiCloudLine, text: 'PySpark distributed data processing' },
               { icon: RiShieldCheckLine, text: 'Role-based access control (RBAC)' },
             ].map(({ icon: Icon, text }) => (
               <div className="login-feature-item" key={text}>
@@ -53,7 +50,6 @@ export default function Login() {
         </div>
       </div>
 
-      {/* ── Right Panel ── */}
       <div className="login-right">
         <div style={{ maxWidth: 360, width: '100%' }}>
           <div style={{ marginBottom: 28 }}>
@@ -61,28 +57,13 @@ export default function Login() {
             <p className="sub">Access your climate monitoring workspace</p>
           </div>
 
-          {/* Role switcher (demo) */}
-          <div style={{ marginBottom: 20 }}>
-            <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: 8 }}>
-              Demo Role
-            </label>
-            <div className="login-role-select">
-              {ROLES.map(r => (
-                <button
-                  key={r}
-                  type="button"
-                  className={`login-role-btn${selectedRole === r ? ' active' : ''}`}
-                  onClick={() => handleRoleSelect(r)}
-                  id={`role-${r}`}
-                  style={{ textTransform: 'capitalize' }}
-                >
-                  {r}
-                </button>
-              ))}
-            </div>
-          </div>
-
           <form onSubmit={handleSubmit}>
+            {error && (
+              <div className="alert alert-danger" style={{ padding: '10px 14px', fontSize: '0.8rem' }}>
+                {error}
+              </div>
+            )}
+
             <div className="login-input-group">
               <label>Email address</label>
               <div className="login-input-wrap">
@@ -108,6 +89,7 @@ export default function Login() {
                   value={password}
                   onChange={e => setPassword(e.target.value)}
                   placeholder="Enter password"
+                  required
                 />
               </div>
             </div>
@@ -120,7 +102,7 @@ export default function Login() {
               {loading ? (
                 <span className="d-flex align-items-center justify-content-center gap-2">
                   <span className="spinner-border spinner-border-sm" role="status" />
-                  Signing in…
+                  Signing in...
                 </span>
               ) : 'Sign In'}
             </button>

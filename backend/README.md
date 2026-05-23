@@ -36,11 +36,13 @@ FastAPI + MongoDB + PySpark backend implementation for the EarthScape climate an
 - `GET /api/auth/me`
 - `POST /api/ingest/upload`
 - `POST /api/ingest/schedule`
+- `GET /api/ingest/schedules`
 - `GET /api/ingest/history`
 - `POST /api/spark/run-job`
 - `GET /api/spark/jobs`
 - `GET /api/ml/models`
 - `POST /api/ml/predict`
+- `POST /api/ml/forecast`
 - `POST /api/ml/live-weather`
 - `GET /api/alerts`
 - `POST /api/alerts/configure`

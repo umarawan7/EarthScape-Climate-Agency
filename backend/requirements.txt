@@ -17,3 +17,5 @@ joblib==1.5.1
 pyspark==3.5.6
 kagglehub==0.3.12
 jupyter==1.1.1
+fastparquet
+pyarrow

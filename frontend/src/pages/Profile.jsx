@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { RiUser3Line, RiLockPasswordLine, RiMailLine, RiShieldCheckLine } from 'react-icons/ri';
+import { userService } from '../services/domainServices';
+import { RiUser3Line, RiLockPasswordLine, RiMailLine, RiShieldCheckLine, RiCalendarLine, RiTimeLine } from 'react-icons/ri';
 
 export default function Profile() {
-  const { user } = useAuth();
+  const { user, accessToken, updateUser } = useAuth();
 
   const [email, setEmail] = useState(user?.email || '');
   const [currentPassword, setCurrentPassword] = useState('');
@@ -12,25 +13,50 @@ export default function Profile() {
 
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
+  const [messageType, setMessageType] = useState('');
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     setMessage('');
+    setMessageType('');
 
-    if (newPassword !== confirmPassword) {
+    if (newPassword && newPassword !== confirmPassword) {
       setMessage('New passwords do not match');
+      setMessageType('danger');
       setLoading(false);
       return;
     }
 
-    setTimeout(() => {
+    const payload = {};
+    if (email && email !== user?.email) payload.email = email;
+    if (newPassword) {
+      payload.current_password = currentPassword;
+      payload.new_password = newPassword;
+    }
+
+    if (!Object.keys(payload).length) {
+      setMessage('No changes to save.');
+      setMessageType('info');
       setLoading(false);
+      return;
+    }
+
+    try {
+      const updated = await userService.updateProfile(accessToken, payload);
+      updateUser({ email: updated.email, name: updated.name });
       setMessage('Profile updated successfully!');
+      setMessageType('success');
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
-    }, 1000);
+      if (updated.email) setEmail(updated.email);
+    } catch (err) {
+      setMessage(err?.message || 'Failed to update profile');
+      setMessageType('danger');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -41,6 +67,7 @@ export default function Profile() {
       </div>
 
       <div className="row g-4">
+        {/* ── Left panel: avatar + account info ── */}
         <div className="col-12 col-lg-4">
           <div className="card-es h-100">
             <div className="card-body-es d-flex flex-column align-items-center text-center p-5">
@@ -55,7 +82,7 @@ export default function Profile() {
               <h4 style={{ fontWeight: 800, marginBottom: 4 }}>{user?.name}</h4>
               <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: 16 }}>{user?.email}</p>
 
-              <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginBottom: 24 }}>
                 <span style={{
                   background: 'var(--primary-light)', color: 'var(--primary)',
                   padding: '4px 12px', borderRadius: 20, fontSize: '0.75rem', fontWeight: 700,
@@ -70,10 +97,51 @@ export default function Profile() {
                   Active
                 </span>
               </div>
+
+              <div style={{ width: '100%', textAlign: 'left' }}>
+                {[
+                  {
+                    icon: RiUser3Line,
+                    label: 'Full Name',
+                    value: user?.name || '—',
+                  },
+                  {
+                    icon: RiMailLine,
+                    label: 'Email',
+                    value: user?.email || '—',
+                  },
+                  {
+                    icon: RiShieldCheckLine,
+                    label: 'Role',
+                    value: user?.role ? user.role.charAt(0).toUpperCase() + user.role.slice(1) : '—',
+                  },
+                  {
+                    icon: RiCalendarLine,
+                    label: 'Registered',
+                    value: user?.created_at ? new Date(user.created_at).toLocaleDateString() : '—',
+                  },
+                  {
+                    icon: RiTimeLine,
+                    label: 'Last Login',
+                    value: user?.last_login ? new Date(user.last_login).toLocaleString() : 'N/A',
+                  },
+                ].map(({ icon: Icon, label, value }) => (
+                  <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--border-light)' }}>
+                    <div style={{ width: 30, height: 30, borderRadius: 8, background: 'var(--primary-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--primary)', fontSize: 15, flexShrink: 0 }}>
+                      <Icon />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</div>
+                      <div style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)' }}>{value}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </div>
 
+        {/* ── Right panel: edit form ── */}
         <div className="col-12 col-lg-8">
           <div className="card-es h-100">
             <div className="card-header-es">
@@ -82,7 +150,7 @@ export default function Profile() {
             <div className="card-body-es p-4">
               <form onSubmit={handleSubmit}>
                 {message && (
-                  <div className={`alert ${message.includes('successfully') ? 'alert-success' : 'alert-danger'}`} style={{ padding: '12px 16px', fontSize: '0.85rem' }}>
+                  <div className={`alert alert-${messageType}`} style={{ padding: '12px 16px', fontSize: '0.85rem' }}>
                     {message}
                   </div>
                 )}
@@ -106,7 +174,8 @@ export default function Profile() {
                 </div>
 
                 <hr className="divider mb-4" />
-                <h6 style={{ fontSize: '0.85rem', fontWeight: 700, marginBottom: 16, color: 'var(--text-secondary)' }}>Change Password</h6>
+                <h6 style={{ fontSize: '0.85rem', fontWeight: 700, marginBottom: 4, color: 'var(--text-secondary)' }}>Change Password</h6>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 16 }}>Leave blank to keep your current password.</p>
 
                 <div className="row g-3 mb-4">
                   <div className="col-12 col-md-6">
@@ -158,7 +227,12 @@ export default function Profile() {
 
                 <div className="d-flex justify-content-end mt-4">
                   <button type="submit" className="btn btn-primary px-4" disabled={loading}>
-                    {loading ? 'Saving...' : 'Save Changes'}
+                    {loading ? (
+                      <>
+                        <span className="spinner-border spinner-border-sm me-2" role="status" />
+                        Saving...
+                      </>
+                    ) : 'Save Changes'}
                   </button>
                 </div>
               </form>

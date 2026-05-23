@@ -29,6 +29,12 @@ async def schedule_ingestion(payload: IngestionScheduleRequest, current_user: di
     )
 
 
+@router.get("/schedules")
+async def list_schedules(current_user: dict = Depends(get_current_user)) -> list[dict]:
+    ensure_role(current_user, {UserRole.admin, UserRole.analyst})
+    return await IngestionService().list_schedules()
+
+
 @router.get("/history")
 async def ingestion_history(current_user: dict = Depends(get_current_user)) -> list[dict]:
     ensure_role(current_user, {UserRole.admin, UserRole.analyst, UserRole.viewer})

@@ -1,27 +1,31 @@
-import asyncio
 from datetime import datetime
 
-from fastapi import BackgroundTasks, Depends, FastAPI, WebSocket, WebSocketDisconnect
+import asyncio
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import ensure_directories, settings
 from app.core.database import db
 from app.core.websocket_manager import ws_manager
 from app.routes import alerts, auth, climate, ingest, ml, spark, support, users
+from app.services.ingestion_service import IngestionService
 
 app = FastAPI(title=settings.app_name, version=settings.app_version)
+schedule_worker_task: asyncio.Task | None = None
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:5173",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-
 @app.on_event("startup")
 async def on_startup() -> None:
+    global schedule_worker_task
     ensure_directories()
     await db.connect()
 
@@ -32,10 +36,21 @@ async def on_startup() -> None:
     await users_collection.create_index("email", unique=True)
     await alerts_collection.create_index([("triggered_at", -1)])
     await ingestion_collection.create_index([("ingested_at", -1)])
+    await db.get_collection("ingestion_schedules").create_index([("next_run", 1), ("status", 1)])
+
+    schedule_worker_task = asyncio.create_task(ingestion_schedule_worker())
 
 
 @app.on_event("shutdown")
 async def on_shutdown() -> None:
+    global schedule_worker_task
+    if schedule_worker_task:
+        schedule_worker_task.cancel()
+        try:
+            await schedule_worker_task
+        except asyncio.CancelledError:
+            pass
+        schedule_worker_task = None
     await db.disconnect()
 
 
@@ -64,3 +79,13 @@ async def alert_websocket(websocket: WebSocket) -> None:
         ws_manager.disconnect("alerts", websocket)
     except Exception:
         ws_manager.disconnect("alerts", websocket)
+
+
+async def ingestion_schedule_worker() -> None:
+    service = IngestionService()
+    while True:
+        try:
+            await service.run_due_schedules()
+        except Exception:
+            pass
+        await asyncio.sleep(30)

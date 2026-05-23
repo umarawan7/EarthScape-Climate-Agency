@@ -4,6 +4,7 @@ from pathlib import Path
 
 import joblib
 from pyspark.ml.feature import VectorAssembler
+from pyspark.ml.evaluation import RegressionEvaluator
 from pyspark.ml.regression import LinearRegression
 from pyspark.sql import functions as F
 from sklearn.ensemble import IsolationForest
@@ -62,20 +63,34 @@ def main() -> None:
     joblib.dump(iso_model, isolation_path)
 
     prepared = prepared.withColumn("time_idx", F.col("year").cast("double") + (F.col("month").cast("double") - F.lit(1.0)) / F.lit(12.0))
+    prepared = prepared.withColumn("sin_month", F.sin(F.lit(2.0) * F.lit(3.141592653589793) * F.col("month") / F.lit(12.0)))
+    prepared = prepared.withColumn("cos_month", F.cos(F.lit(2.0) * F.lit(3.141592653589793) * F.col("month") / F.lit(12.0)))
 
-    spark_train = prepared.select("time_idx", "latitude_num", "longitude_num", "temperature_c").dropna()
-    assembler = VectorAssembler(inputCols=["time_idx", "latitude_num", "longitude_num"], outputCol="features")
-    train_features = assembler.transform(spark_train)
+    spark_train = prepared.select("time_idx", "latitude_num", "longitude_num", "sin_month", "cos_month", "temperature_c").dropna()
+    assembler = VectorAssembler(
+        inputCols=["time_idx", "latitude_num", "longitude_num", "sin_month", "cos_month"],
+        outputCol="features",
+    )
+    assembled = assembler.transform(spark_train)
+    train_split, test_split = assembled.randomSplit([0.8, 0.2], seed=42)
     lr = LinearRegression(featuresCol="features", labelCol="temperature_c")
-    lr_model = lr.fit(train_features)
+    lr_model = lr.fit(train_split)
 
     spark_model_path = str(model_dir / "spark_linear_regression")
     lr_model.write().overwrite().save(spark_model_path)
+
+    predictions = lr_model.transform(test_split)
+    rmse = RegressionEvaluator(labelCol="temperature_c", predictionCol="prediction", metricName="rmse").evaluate(predictions)
+    r2 = RegressionEvaluator(labelCol="temperature_c", predictionCol="prediction", metricName="r2").evaluate(predictions)
 
     summary = {
         "isolation_forest": str(isolation_path),
         "linear_regression": spark_model_path,
         "records_used": int(spark_train.count()),
+        "train_rows": int(train_split.count()),
+        "test_rows": int(test_split.count()),
+        "linear_regression_rmse": float(rmse),
+        "linear_regression_r2": float(r2),
     }
 
     Path(args.output).mkdir(parents=True, exist_ok=True)

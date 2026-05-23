@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 
 from app.core.dependencies import get_current_user
-from app.models.user import UserRole, UserUpdateRole
+from app.models.user import UserRole, UserUpdateRole, UserUpdateProfile
 from app.routes._role_utils import ensure_role
 from app.services.auth_service import AuthService
 
@@ -25,3 +25,14 @@ async def delete_user(user_id: str, current_user: dict = Depends(get_current_use
     ensure_role(current_user, {UserRole.admin})
     await AuthService().delete_user(user_id)
     return {"deleted": True}
+
+
+@router.patch("/profile")
+async def update_profile(payload: UserUpdateProfile, current_user: dict = Depends(get_current_user)) -> dict:
+    return await AuthService().update_profile(
+        user_id=current_user["id"],
+        email=payload.email,
+        current_password=payload.current_password,
+        new_password=payload.new_password
+    )
+

@@ -25,15 +25,18 @@ async def list_tickets(current_user: dict = Depends(get_current_user)) -> list[d
     ensure_role(current_user, {UserRole.admin, UserRole.analyst, UserRole.viewer})
     return await SupportService().list_tickets(
         user_id=current_user["id"],
-        is_admin=current_user["role"] == UserRole.admin.value,
+        can_view_all=current_user["role"] in {UserRole.admin.value, UserRole.analyst.value},
     )
 
 
 @router.patch("/tickets/{ticket_id}")
 async def update_ticket(ticket_id: str, payload: SupportTicketUpdate, current_user: dict = Depends(get_current_user)) -> dict:
-    ensure_role(current_user, {UserRole.admin})
+    ensure_role(current_user, {UserRole.admin, UserRole.analyst})
     return await SupportService().update_ticket(
         ticket_id=ticket_id,
         status=payload.status.value if payload.status else None,
         admin_response=payload.admin_response,
+        responder_id=current_user["id"],
+        responder_name=current_user["name"],
+        responder_role=current_user["role"],
     )

@@ -38,3 +38,6 @@ class SupportTicketPublic(BaseModel):
     created_at: datetime
     updated_at: datetime
     admin_response: str | None = None
+    admin_response_by: str | None = None
+    admin_response_by_id: str | None = None
+    admin_response_by_role: str | None = None

@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 
 from app.core.dependencies import get_current_user
-from app.models.ml import LiveWeatherRequest, MLPredictRequest
+from app.models.ml import LiveWeatherRequest, MLForecastBatchRequest, MLForecastRequest, MLPredictRequest
 from app.models.user import UserRole
 from app.routes._role_utils import ensure_role
 from app.services.alert_service import AlertService
@@ -28,6 +28,26 @@ async def predict(payload: MLPredictRequest, current_user: dict = Depends(get_cu
     )
     await AlertService().evaluate_temperature(payload.region, payload.temperature)
     return prediction
+
+
+@router.post("/forecast")
+async def forecast(payload: MLForecastRequest, current_user: dict = Depends(get_current_user)) -> dict:
+    ensure_role(current_user, {UserRole.admin, UserRole.analyst, UserRole.viewer})
+    return await MLService().forecast_temperature(
+        year=payload.year,
+        month=payload.month,
+        day=payload.day,
+        latitude=payload.latitude,
+        longitude=payload.longitude,
+        region=payload.region,
+    )
+
+
+@router.post("/forecast-batch")
+async def forecast_batch(payload: MLForecastBatchRequest, current_user: dict = Depends(get_current_user)) -> list[dict]:
+    ensure_role(current_user, {UserRole.admin, UserRole.analyst, UserRole.viewer})
+    items = [item.model_dump() for item in payload.items]
+    return await MLService().batch_forecast(items)
 
 
 @router.post("/live-weather")
@@ -62,3 +82,4 @@ async def city_to_coordinates(
 ) -> dict:
     ensure_role(current_user, {UserRole.admin, UserRole.analyst, UserRole.viewer})
     return await WeatherService().geocode_city(city)
+

@@ -27,3 +27,10 @@ async def run_job(payload: SparkRunRequest, current_user: dict = Depends(get_cur
 async def list_jobs(current_user: dict = Depends(get_current_user)) -> list[dict]:
     ensure_role(current_user, {UserRole.admin, UserRole.analyst, UserRole.viewer})
     return await SparkService().list_jobs()
+
+
+@router.post("/load-processed/{job_id}")
+async def load_processed(job_id: str, current_user: dict = Depends(get_current_user)) -> dict:
+    ensure_role(current_user, {UserRole.admin, UserRole.analyst})
+    return await SparkService().load_processed(job_id)
+
